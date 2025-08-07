@@ -41,7 +41,7 @@ interface RoomState {
   lastUpdated: number
 }
 
-const fibonacciSequence: FibonacciValue[] = ['☕', '1' | '2' | '3' | '5' | '8' | '13' | '21']
+const fibonacciSequence: FibonacciValue[] = ['☕', '1', '2', '3', '5', '8', '13', '21']
 
 const groupColors = {
   G: {
