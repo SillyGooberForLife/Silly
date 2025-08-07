@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,9 +28,20 @@ interface User {
   groups: Group[]
   isAdmin: boolean
   isOnline: boolean
+  lastSeen: number
 }
 
-const fibonacciSequence: FibonacciValue[] = ['☕', '1', '2', '3', '5', '8', '13', '21']
+interface RoomState {
+  code: string
+  currentScreen: Screen
+  users: User[]
+  votes: Vote[]
+  adminId: string
+  createdAt: number
+  lastUpdated: number
+}
+
+const fibonacciSequence: FibonacciValue[] = ['☕', '1' | '2' | '3' | '5' | '8' | '13' | '21']
 
 const groupColors = {
   G: {
@@ -70,18 +81,130 @@ export default function FibonacciVotingApp() {
     name: '',
     groups: [],
     isAdmin: false,
-    isOnline: true
+    isOnline: true,
+    lastSeen: Date.now()
   })
   const [roomCode, setRoomCode] = useState('')
   const [joinRoomCode, setJoinRoomCode] = useState('')
-  const [users, setUsers] = useState<User[]>([])
-  const [votes, setVotes] = useState<Vote[]>([])
+  const [roomState, setRoomState] = useState<RoomState | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [userVotes, setUserVotes] = useState<{[key: string]: FibonacciValue}>({})
   const [showAdmin, setShowAdmin] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [votingComplete, setVotingComplete] = useState(false)
+
+  // Room state management functions
+  const saveRoomState = useCallback((state: RoomState) => {
+    localStorage.setItem(`room_${state.code}`, JSON.stringify(state))
+  }, [])
+
+  const loadRoomState = useCallback((code: string): RoomState | null => {
+    const stored = localStorage.getItem(`room_${code}`)
+    if (stored) {
+      return JSON.parse(stored)
+    }
+    return null
+  }, [])
+
+  const updateUserInRoom = useCallback((roomCode: string, user: User) => {
+    const state = loadRoomState(roomCode)
+    if (state) {
+      const updatedUsers = state.users.map(u => 
+        u.id === user.id ? { ...user, lastSeen: Date.now() } : u
+      )
+      
+      // Add user if not exists
+      if (!updatedUsers.find(u => u.id === user.id)) {
+        updatedUsers.push({ ...user, lastSeen: Date.now() })
+      }
+      
+      const updatedState = {
+        ...state,
+        users: updatedUsers,
+        lastUpdated: Date.now()
+      }
+      
+      saveRoomState(updatedState)
+      setRoomState(updatedState)
+    }
+  }, [loadRoomState, saveRoomState])
+
+  const updateRoomScreen = useCallback((roomCode: string, screen: Screen) => {
+    const state = loadRoomState(roomCode)
+    if (state) {
+      const updatedState = {
+        ...state,
+        currentScreen: screen,
+        lastUpdated: Date.now()
+      }
+      
+      if (screen === 'voting') {
+        // Clear votes when starting new voting round
+        updatedState.votes = []
+      }
+      
+      saveRoomState(updatedState)
+      setRoomState(updatedState)
+    }
+  }, [loadRoomState, saveRoomState])
+
+  const submitUserVotes = useCallback((roomCode: string, votes: Vote[]) => {
+    const state = loadRoomState(roomCode)
+    if (state) {
+      // Remove existing votes from this user and add new ones
+      const filteredVotes = state.votes.filter(v => v.userId !== currentUser.id)
+      const updatedState = {
+        ...state,
+        votes: [...filteredVotes, ...votes],
+        lastUpdated: Date.now()
+      }
+      
+      saveRoomState(updatedState)
+      setRoomState(updatedState)
+    }
+  }, [loadRoomState, saveRoomState, currentUser.id])
+
+  // Polling for room updates
+  useEffect(() => {
+    if (!roomCode) return
+
+    const pollInterval = setInterval(() => {
+      const state = loadRoomState(roomCode)
+      if (state) {
+        // Update user's last seen
+        updateUserInRoom(roomCode, currentUser)
+        
+        // Clean up offline users (not seen for 30 seconds)
+        const now = Date.now()
+        const activeUsers = state.users.filter(u => now - u.lastSeen < 30000)
+        
+        if (activeUsers.length !== state.users.length) {
+          const updatedState = {
+            ...state,
+            users: activeUsers,
+            lastUpdated: now
+          }
+          saveRoomState(updatedState)
+          setRoomState(updatedState)
+        } else {
+          setRoomState(state)
+        }
+        
+        // Sync screen state for non-admin users
+        if (!currentUser.isAdmin && state.currentScreen !== currentScreen) {
+          setCurrentScreen(state.currentScreen)
+          if (state.currentScreen === 'voting') {
+            setUserVotes({})
+            setSelectedGroup(null)
+            setVotingComplete(false)
+          }
+        }
+      }
+    }, 2000) // Poll every 2 seconds
+
+    return () => clearInterval(pollInterval)
+  }, [roomCode, currentUser, currentScreen, loadRoomState, updateUserInRoom, saveRoomState])
 
   // Load room from URL parameter
   useEffect(() => {
@@ -96,9 +219,22 @@ export default function FibonacciVotingApp() {
   const generateRoomCode = () => {
     const code = Math.random().toString(36).substr(2, 6).toUpperCase()
     setRoomCode(code)
-    const adminUser = { ...currentUser, isAdmin: true }
+    
+    const adminUser = { ...currentUser, isAdmin: true, lastSeen: Date.now() }
     setCurrentUser(adminUser)
-    setUsers([adminUser])
+    
+    const newRoomState: RoomState = {
+      code,
+      currentScreen: 'waiting',
+      users: [adminUser],
+      votes: [],
+      adminId: adminUser.id,
+      createdAt: Date.now(),
+      lastUpdated: Date.now()
+    }
+    
+    saveRoomState(newRoomState)
+    setRoomState(newRoomState)
     
     // Update URL
     window.history.pushState({}, '', `?room=${code}`)
@@ -122,13 +258,26 @@ export default function FibonacciVotingApp() {
 
     setIsLoading(true)
     
-    // Simulate joining room
+    // Check if room exists
+    const existingRoom = loadRoomState(joinRoomCode)
+    if (!existingRoom) {
+      setIsLoading(false)
+      toast({
+        title: "Room Not Found",
+        description: "The room code you entered doesn't exist.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Simulate joining delay
     setTimeout(() => {
       setRoomCode(joinRoomCode)
-      const newUser = { ...currentUser, isOnline: true }
+      const newUser = { ...currentUser, isOnline: true, lastSeen: Date.now() }
       setCurrentUser(newUser)
-      setUsers(prev => [...prev, newUser])
-      setCurrentScreen('waiting')
+      
+      updateUserInRoom(joinRoomCode, newUser)
+      setCurrentScreen(existingRoom.currentScreen)
       setIsLoading(false)
       
       // Update URL
@@ -221,11 +370,7 @@ export default function FibonacciVotingApp() {
       return
     }
     
-    setVotes(prev => [
-      ...prev.filter(v => v.userId !== currentUser.id),
-      ...newVotes
-    ])
-    
+    submitUserVotes(roomCode, newVotes)
     setVotingComplete(true)
     
     toast({
@@ -262,11 +407,13 @@ export default function FibonacciVotingApp() {
   const getResultsByGroup = () => {
     const results: {[key in Group]?: {[key in FibonacciValue]?: number}} = {}
     
-    votes.forEach(vote => {
-      if (!results[vote.group]) results[vote.group] = {}
-      if (!results[vote.group]![vote.value]) results[vote.group]![vote.value] = 0
-      results[vote.group]![vote.value]!++
-    })
+    if (roomState) {
+      roomState.votes.forEach(vote => {
+        if (!results[vote.group]) results[vote.group] = {}
+        if (!results[vote.group]![vote.value]) results[vote.group]![vote.value] = 0
+        results[vote.group]![vote.value]!++
+      })
+    }
     
     return results
   }
@@ -296,11 +443,11 @@ export default function FibonacciVotingApp() {
 
   // Admin functions
   const proceedToVoting = () => {
-    setVotes([])
+    updateRoomScreen(roomCode, 'voting')
+    setCurrentScreen('voting')
     setUserVotes({})
     setSelectedGroup(null)
     setVotingComplete(false)
-    setCurrentScreen('voting')
     
     toast({
       title: "Voting Started",
@@ -309,6 +456,7 @@ export default function FibonacciVotingApp() {
   }
 
   const proceedToReveal = () => {
+    updateRoomScreen(roomCode, 'reveal')
     setCurrentScreen('reveal')
     
     toast({
@@ -318,8 +466,13 @@ export default function FibonacciVotingApp() {
   }
 
   const backToWaiting = () => {
+    updateRoomScreen(roomCode, 'waiting')
     setCurrentScreen('waiting')
   }
+
+  // Get current users and votes from room state
+  const users = roomState?.users || []
+  const votes = roomState?.votes || []
 
   // Menu Screen
   if (currentScreen === 'menu') {
