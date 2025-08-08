@@ -33,7 +33,7 @@ export function WaitingScreen({
       <div className="max-w-md mx-auto space-y-6 pt-4">
         <Card className="shadow-lg border-0">
           <CardHeader className="text-center pb-4">
-            <CardTitle className="text-2xl font-bold">Room: {roomCode}</CardTitle>
+            <CardTitle className="text-2xl font-bold font-mono tracking-wider">Room: {roomCode}</CardTitle>
             <p className="text-gray-600">Waiting for participants...</p>
           </CardHeader>
           <CardContent className="space-y-6">
