@@ -332,6 +332,23 @@ export default function FibonacciVotingApp() {
     }
     
     const voteKey = selectedGroup
+    
+    // If clicking the same value, deselect it
+    if (userVotes[voteKey] === value) {
+      setUserVotes(prev => {
+        const newVotes = { ...prev }
+        delete newVotes[voteKey]
+        return newVotes
+      })
+      
+      toast({
+        title: "Vote Removed",
+        description: `${groupNames[selectedGroup]} vote cleared`,
+      })
+      return
+    }
+    
+    // Otherwise, set the new vote
     setUserVotes(prev => ({
       ...prev,
       [voteKey]: value
@@ -675,8 +692,9 @@ export default function FibonacciVotingApp() {
                         selectedGroup === group 
                           ? `${groupColors[group].bg} ${groupColors[group].hover} text-white shadow-md` 
                           : `${groupColors[group].border} ${groupColors[group].text} hover:${groupColors[group].light}`
-                      }`}
+                      } ${votingComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
                       onClick={() => setSelectedGroup(group)}
+                      disabled={votingComplete}
                     >
                       <span className="font-medium">{groupNames[group]}</span>
                       <div className="flex items-center space-x-2">
@@ -706,9 +724,9 @@ export default function FibonacciVotingApp() {
                         selectedGroup && userVotes[selectedGroup] === value 
                           ? `${groupColors[selectedGroup].bg} ${groupColors[selectedGroup].hover} text-white shadow-lg scale-105` 
                           : 'hover:scale-105 hover:shadow-md'
-                      } ${!selectedGroup ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      } ${!selectedGroup || votingComplete ? 'opacity-50 cursor-not-allowed' : ''}`}
                       onClick={() => voteForNumber(value)}
-                      disabled={!selectedGroup}
+                      disabled={!selectedGroup || votingComplete}
                     >
                       {value === '☕' ? <Coffee className="w-6 h-6" /> : value}
                     </Button>
@@ -833,7 +851,7 @@ export default function FibonacciVotingApp() {
                         <span className="text-sm text-gray-600">Current: {userVotes[group] || 'None'}</span>
                       </div>
                       <div className="grid grid-cols-4 gap-2">
-                        {fibonacciSequence.slice(0, 4).map(value => (
+                        {fibonacciSequence.map(value => (
                           <Button
                             key={value}
                             size="sm"
@@ -843,7 +861,20 @@ export default function FibonacciVotingApp() {
                                 ? `${groupColors[group].bg} ${groupColors[group].hover} text-white shadow-md` 
                                 : 'hover:scale-105'
                             }`}
-                            onClick={() => setUserVotes(prev => ({ ...prev, [group]: value }))}
+                            onClick={() => {
+                              const currentVote = userVotes[group]
+                              if (currentVote === value) {
+                                // Deselect if clicking the same value
+                                setUserVotes(prev => {
+                                  const newVotes = { ...prev }
+                                  delete newVotes[group]
+                                  return newVotes
+                                })
+                              } else {
+                                // Select new value
+                                setUserVotes(prev => ({ ...prev, [group]: value }))
+                              }
+                            }}
                           >
                             {value === '☕' ? <Coffee className="w-4 h-4" /> : value}
                           </Button>
