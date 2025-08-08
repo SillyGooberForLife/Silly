@@ -91,7 +91,7 @@ export function MenuScreen({
                   value={joinRoomCode}
                   onChange={(e) => onJoinRoomCodeChange(e.target.value.toUpperCase())}
                   placeholder="Room Code"
-                  className="h-12 text-lg font-mono tracking-wider"
+                  className="h-12 text-lg font-mono"
                   maxLength={6}
                 />
                 <Button 

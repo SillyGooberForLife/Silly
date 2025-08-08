@@ -4,15 +4,21 @@ import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { CheckCircle, AlertCircle } from 'lucide-react'
 import { FibonacciGrid } from '@/components/FibonacciGrid'
-import { User, Group, FibonacciValue } from '@/types'
+import { VotingProgress } from '@/components/VotingProgress'
+import { VotingSummary } from '@/components/VotingSummary'
+import { User, Group, FibonacciValue, Vote, UserSubmission } from '@/types'
 import { groupColors, groupNames } from '@/constants'
 import { getVoteCount } from '@/utils/voting'
 
 interface VotingScreenProps {
   currentUser: User
+  currentTask: string
   selectedGroup: Group | null
   userVotes: {[key: string]: FibonacciValue}
   votingComplete: boolean
+  users: User[]
+  votes: Vote[]
+  submissions: UserSubmission[]
   onGroupSelect: (group: Group) => void
   onVote: (value: FibonacciValue) => void
   onSubmitVotes: () => void
@@ -22,9 +28,13 @@ interface VotingScreenProps {
 
 export function VotingScreen({
   currentUser,
+  currentTask,
   selectedGroup,
   userVotes,
   votingComplete,
+  users,
+  votes,
+  submissions,
   onGroupSelect,
   onVote,
   onSubmitVotes,
@@ -40,9 +50,22 @@ export function VotingScreen({
         <Card className="shadow-lg border-0">
           <CardHeader className="text-center pb-4">
             <CardTitle className="text-xl font-bold">Cast Your Votes</CardTitle>
-            <p className="text-gray-600">Select group, then choose your estimate</p>
+            {currentTask && (
+              <div className="mt-2 p-2 bg-blue-50 rounded-lg">
+                <p className="text-sm text-gray-600">Voting for:</p>
+                <p className="font-semibold text-blue-800">{currentTask}</p>
+              </div>
+            )}
           </CardHeader>
           <CardContent className="space-y-6">
+            {/* Admin Progress Tracking */}
+            {currentUser.isAdmin && (
+              <>
+                <VotingProgress users={users} votes={votes} submissions={submissions} isAdmin={currentUser.isAdmin} />
+                <VotingSummary votes={votes} isAdmin={currentUser.isAdmin} />
+              </>
+            )}
+
             {/* Group Selection */}
             <div className="space-y-3">
               <label className="block text-sm font-semibold text-gray-700">Select Group to Vote</label>

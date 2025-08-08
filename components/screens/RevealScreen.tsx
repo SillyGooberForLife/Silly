@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
-import { RotateCcw, Coffee } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { RotateCcw, Coffee, Users } from 'lucide-react'
 import { FibonacciGrid } from '@/components/FibonacciGrid'
 import { User, Group, FibonacciValue, Vote } from '@/types'
 import { groupColors, groupNames, fibonacciSequence } from '@/constants'
@@ -28,6 +29,11 @@ export function RevealScreen({
 }: RevealScreenProps) {
   const results = getResultsByGroup({ votes } as any)
 
+  // Group votes by user and group for detailed display
+  const getVotesByGroup = (group: Group) => {
+    return votes.filter(v => v.group === group)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 p-4">
       <div className="max-w-md mx-auto space-y-6 pt-4">
@@ -40,6 +46,7 @@ export function RevealScreen({
             {(Object.keys(groupNames) as Group[]).map(group => {
               const groupResults = results[group] || {}
               const groupVotes = votes.filter(v => v.group === group).map(v => v.value)
+              const groupVoteDetails = getVotesByGroup(group)
               const median = calculateMedian(groupVotes)
               const hasVotes = Object.keys(groupResults).length > 0
               
@@ -56,19 +63,40 @@ export function RevealScreen({
                   </div>
                   
                   {hasVotes ? (
-                    <div className="grid grid-cols-4 gap-2">
-                      {fibonacciSequence.map(value => {
-                        const count = groupResults[value] || 0
-                        return count > 0 ? (
-                          <div key={value} className="text-center p-3 bg-white rounded-lg border shadow-sm">
-                            <div className="font-bold text-lg">
-                              {value === '☕' ? <Coffee className="w-5 h-5 mx-auto" /> : value}
+                    <>
+                      {/* Vote counts by value */}
+                      <div className="grid grid-cols-4 gap-2">
+                        {fibonacciSequence.map(value => {
+                          const count = groupResults[value] || 0
+                          return count > 0 ? (
+                            <div key={value} className="text-center p-3 bg-white rounded-lg border shadow-sm">
+                              <div className="font-bold text-lg">
+                                {value === '☕' ? <Coffee className="w-5 h-5 mx-auto" /> : value}
+                              </div>
+                              <div className="text-sm text-gray-600">{count}x</div>
                             </div>
-                            <div className="text-sm text-gray-600">{count}x</div>
-                          </div>
-                        ) : null
-                      })}
-                    </div>
+                          ) : null
+                        })}
+                      </div>
+                      
+                      {/* Individual votes by user */}
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-gray-700 flex items-center">
+                          <Users className="w-4 h-4 mr-1" />
+                          Individual Votes
+                        </h4>
+                        <div className="space-y-1">
+                          {groupVoteDetails.map((vote, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-white rounded border text-sm">
+                              <span className="text-gray-700">{vote.userName}</span>
+                              <Badge variant="outline" className="font-bold">
+                                {vote.value === '☕' ? <Coffee className="w-3 h-3" /> : vote.value}
+                              </Badge>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
                   ) : (
                     <div className="text-center py-4 text-gray-500 italic">
                       No votes cast for this group
@@ -102,7 +130,7 @@ export function RevealScreen({
                           onVoteUpdate(group, value) // Select new value
                         }
                       }}
-                      sequence={fibonacciSequence} // Updated to show all numbers
+                      sequence={fibonacciSequence}
                       size="sm"
                     />
                   </div>

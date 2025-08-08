@@ -1,7 +1,8 @@
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Copy, QrCode, Settings } from 'lucide-react'
+import { Copy, QrCode } from 'lucide-react'
 import { UserList } from '@/components/UserList'
+import { TaskEditor } from '@/components/TaskEditor'
 import { User } from '@/types'
 import { generateQRCode } from '@/utils/voting'
 
@@ -9,11 +10,11 @@ interface WaitingScreenProps {
   roomCode: string
   users: User[]
   currentUser: User
+  currentTask: string
   showQR: boolean
-  showAdmin: boolean
   onCopyRoomCode: () => void
   onToggleQR: () => void
-  onToggleAdmin: () => void
+  onTaskUpdate: (task: string) => void
   onStartVoting: () => void
 }
 
@@ -21,11 +22,11 @@ export function WaitingScreen({
   roomCode,
   users,
   currentUser,
+  currentTask,
   showQR,
-  showAdmin,
   onCopyRoomCode,
   onToggleQR,
-  onToggleAdmin,
+  onTaskUpdate,
   onStartVoting
 }: WaitingScreenProps) {
   return (
@@ -33,10 +34,18 @@ export function WaitingScreen({
       <div className="max-w-md mx-auto space-y-6 pt-4">
         <Card className="shadow-lg border-0">
           <CardHeader className="text-center pb-4">
-            <CardTitle className="text-2xl font-bold font-mono tracking-wider">Room: {roomCode}</CardTitle>
+            <CardTitle className="text-2xl font-bold font-mono tracking-wider">
+              Room: {roomCode}
+            </CardTitle>
             <p className="text-gray-600">Waiting for participants...</p>
           </CardHeader>
           <CardContent className="space-y-6">
+            <TaskEditor
+              currentTask={currentTask}
+              onTaskUpdate={onTaskUpdate}
+              isAdmin={currentUser.isAdmin}
+            />
+
             <div className="grid grid-cols-2 gap-3">
               <Button onClick={onCopyRoomCode} variant="outline" className="h-12 font-medium">
                 <Copy className="w-4 h-4 mr-2" />
@@ -59,16 +68,12 @@ export function WaitingScreen({
 
             {currentUser.isAdmin && (
               <div className="space-y-3 pt-4 border-t">
-                <Button onClick={onStartVoting} className="w-full h-12 text-lg font-semibold bg-green-600 hover:bg-green-700">
-                  Start Voting Round
-                </Button>
                 <Button 
-                  onClick={onToggleAdmin} 
-                  variant="outline" 
-                  className="w-full h-12 font-medium"
+                  onClick={onStartVoting} 
+                  className="w-full h-12 text-lg font-semibold bg-green-600 hover:bg-green-700"
+                  disabled={users.length === 0}
                 >
-                  <Settings className="w-4 h-4 mr-2" />
-                  {showAdmin ? 'Hide' : 'Show'} Admin Panel
+                  Start Voting Round
                 </Button>
               </div>
             )}

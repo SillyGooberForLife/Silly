@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useToast } from '@/hooks/use-toast'
 import { useRoomState } from '@/hooks/useRoomState'
 import { MenuScreen } from '@/components/screens/MenuScreen'
@@ -12,7 +12,7 @@ import { groupNames } from '@/constants'
 
 export default function FibonacciVotingApp() {
   const { toast } = useToast()
-  const { saveRoomState, loadRoomState, subscribeToRoom, updateUserInRoom, updateRoomScreen, submitUserVotes } = useRoomState()
+  const { saveRoomState, loadRoomState, updateUserInRoom, updateRoomScreen, updateRoomTask, submitUserVotes } = useRoomState()
   
   const [currentScreen, setCurrentScreen] = useState<Screen>('menu')
   const [currentUser, setCurrentUser] = useState<User>({
@@ -28,20 +28,34 @@ export default function FibonacciVotingApp() {
   const [roomState, setRoomState] = useState<RoomState | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null)
   const [userVotes, setUserVotes] = useState<{[key: string]: FibonacciValue}>({})
-  const [showAdmin, setShowAdmin] = useState(false)
   const [showQR, setShowQR] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [votingComplete, setVotingComplete] = useState(false)
-  const [isConnected, setIsConnected] = useState(false)
 
-  // Subscribe to room updates via polling
+  // Polling for room updates
   useEffect(() => {
     if (!roomCode) return
 
-    const cleanup = subscribeToRoom(
-      roomCode, 
-      (state: RoomState) => {
-        setRoomState(state)
+    const pollInterval = setInterval(() => {
+      const state = loadRoomState(roomCode)
+      if (state) {
+        updateUserInRoom(roomCode, currentUser, setRoomState)
+        
+        // Clean up offline users (not seen for 30 seconds)
+        const now = Date.now()
+        const activeUsers = state.users.filter(u => now - u.lastSeen < 30000)
+        
+        if (activeUsers.length !== state.users.length) {
+          const updatedState = {
+            ...state,
+            users: activeUsers,
+            lastUpdated: now
+          }
+          saveRoomState(updatedState)
+          setRoomState(updatedState)
+        } else {
+          setRoomState(state)
+        }
         
         // Sync screen state for non-admin users
         if (!currentUser.isAdmin && state.currentScreen !== currentScreen) {
@@ -52,22 +66,11 @@ export default function FibonacciVotingApp() {
             setVotingComplete(false)
           }
         }
-      },
-      (connected: boolean) => {
-        setIsConnected(connected)
       }
-    )
+    }, 2000)
 
-    // Update user presence every 30 seconds
-    const presenceInterval = setInterval(() => {
-      updateUserInRoom(roomCode, currentUser, setRoomState)
-    }, 30000)
-
-    return () => {
-      cleanup()
-      clearInterval(presenceInterval)
-    }
-  }, [roomCode, currentUser, currentScreen, subscribeToRoom, updateUserInRoom])
+    return () => clearInterval(pollInterval)
+  }, [roomCode, currentUser, currentScreen, loadRoomState, updateUserInRoom, saveRoomState])
 
   // Load room from URL parameter
   useEffect(() => {
@@ -79,7 +82,7 @@ export default function FibonacciVotingApp() {
   }, [])
 
   // Generate room code
-  const generateRoomCode = async () => {
+  const generateRoomCode = () => {
     const code = Math.random().toString(36).substr(2, 6).toUpperCase()
     setRoomCode(code)
     
@@ -91,12 +94,14 @@ export default function FibonacciVotingApp() {
       currentScreen: 'waiting',
       users: [adminUser],
       votes: [],
+      submissions: [],
       adminId: adminUser.id,
       createdAt: Date.now(),
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      currentTask: 'User Story Estimation'
     }
     
-    await saveRoomState(newRoomState)
+    saveRoomState(newRoomState)
     setRoomState(newRoomState)
     
     // Update URL
@@ -121,23 +126,23 @@ export default function FibonacciVotingApp() {
 
     setIsLoading(true)
     
-    try {
-      const existingRoom = await loadRoomState(joinRoomCode)
-      if (!existingRoom) {
-        setIsLoading(false)
-        toast({
-          title: "Room Not Found",
-          description: "The room code you entered doesn't exist.",
-          variant: "destructive"
-        })
-        return
-      }
+    const existingRoom = loadRoomState(joinRoomCode)
+    if (!existingRoom) {
+      setIsLoading(false)
+      toast({
+        title: "Room Not Found",
+        description: "The room code you entered doesn't exist.",
+        variant: "destructive"
+      })
+      return
+    }
 
+    setTimeout(() => {
       setRoomCode(joinRoomCode)
       const newUser = { ...currentUser, isOnline: true, lastSeen: Date.now() }
       setCurrentUser(newUser)
       
-      await updateUserInRoom(joinRoomCode, newUser, setRoomState)
+      updateUserInRoom(joinRoomCode, newUser, setRoomState)
       setCurrentScreen(existingRoom.currentScreen)
       setIsLoading(false)
       
@@ -147,14 +152,7 @@ export default function FibonacciVotingApp() {
         title: "Joined Room!",
         description: `Welcome to room ${joinRoomCode}`,
       })
-    } catch (error) {
-      setIsLoading(false)
-      toast({
-        title: "Connection Error",
-        description: "Failed to connect to room. Please try again.",
-        variant: "destructive"
-      })
-    }
+    }, 1000)
   }
 
   // Create room and go to waiting
@@ -175,6 +173,15 @@ export default function FibonacciVotingApp() {
       setCurrentScreen('waiting')
       setIsLoading(false)
     }, 800)
+  }
+
+  // Update task name
+  const handleTaskUpdate = (task: string) => {
+    updateRoomTask(roomCode, task, setRoomState)
+    toast({
+      title: "Task Updated",
+      description: `Task name changed to: ${task}`,
+    })
   }
 
   // Vote for Fibonacci number
@@ -217,11 +224,12 @@ export default function FibonacciVotingApp() {
     })
   }
 
-  // Submit all votes
+  // Submit all votes (including skip/empty votes)
   const submitVotes = () => {
     const newVotes: Vote[] = []
     let voteCount = 0
     
+    // Add votes for groups that have actual votes
     currentUser.groups.forEach(group => {
       if (userVotes[group]) {
         newVotes.push({
@@ -235,22 +243,21 @@ export default function FibonacciVotingApp() {
       }
     })
     
-    if (newVotes.length === 0) {
-      toast({
-        title: "No Votes to Submit",
-        description: "Please cast at least one vote before submitting.",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    submitUserVotes(roomCode, newVotes, currentUser.id, setRoomState)
+    // Always submit, even if no votes (this represents a "skip" action)
+    submitUserVotes(roomCode, newVotes, currentUser.id, currentUser.name, setRoomState)
     setVotingComplete(true)
     
-    toast({
-      title: "Votes Submitted!",
-      description: `${voteCount} vote${voteCount > 1 ? 's' : ''} submitted successfully.`,
-    })
+    if (voteCount === 0) {
+      toast({
+        title: "Voting Skipped!",
+        description: "You have chosen to skip voting for all groups.",
+      })
+    } else {
+      toast({
+        title: "Votes Submitted!",
+        description: `${voteCount} vote${voteCount > 1 ? 's' : ''} submitted successfully.`,
+      })
+    }
   }
 
   // Copy room code
@@ -315,90 +322,71 @@ export default function FibonacciVotingApp() {
   // Get current users and votes from room state
   const users = roomState?.users || []
   const votes = roomState?.votes || []
-
-  // Connection status indicator
-  const ConnectionStatus = () => {
-    if (!roomCode) return null
-    
-    return (
-      <div className={`fixed top-4 right-4 px-3 py-1 rounded-full text-xs font-medium z-50 ${
-        isConnected ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-      }`}>
-        {isConnected ? '🟢 Synced' : '🟡 Syncing...'}
-      </div>
-    )
-  }
+  const submissions = roomState?.submissions || []
+  const currentTask = roomState?.currentTask || 'User Story Estimation'
 
   // Render appropriate screen
   if (currentScreen === 'menu') {
     return (
-      <>
-        <ConnectionStatus />
-        <MenuScreen
-          currentUser={currentUser}
-          joinRoomCode={joinRoomCode}
-          isLoading={isLoading}
-          onUserUpdate={setCurrentUser}
-          onJoinRoomCodeChange={setJoinRoomCode}
-          onCreateRoom={createRoom}
-          onJoinRoom={joinRoom}
-        />
-      </>
+      <MenuScreen
+        currentUser={currentUser}
+        joinRoomCode={joinRoomCode}
+        isLoading={isLoading}
+        onUserUpdate={setCurrentUser}
+        onJoinRoomCodeChange={setJoinRoomCode}
+        onCreateRoom={createRoom}
+        onJoinRoom={joinRoom}
+      />
     )
   }
 
   if (currentScreen === 'waiting') {
     return (
-      <>
-        <ConnectionStatus />
-        <WaitingScreen
-          roomCode={roomCode}
-          users={users}
-          currentUser={currentUser}
-          showQR={showQR}
-          showAdmin={showAdmin}
-          onCopyRoomCode={copyRoomCode}
-          onToggleQR={() => setShowQR(!showQR)}
-          onToggleAdmin={() => setShowAdmin(!showAdmin)}
-          onStartVoting={proceedToVoting}
-        />
-      </>
+      <WaitingScreen
+        roomCode={roomCode}
+        users={users}
+        currentUser={currentUser}
+        currentTask={currentTask}
+        showQR={showQR}
+        onCopyRoomCode={copyRoomCode}
+        onToggleQR={() => setShowQR(!showQR)}
+        onTaskUpdate={handleTaskUpdate}
+        onStartVoting={proceedToVoting}
+      />
     )
   }
 
   if (currentScreen === 'voting') {
     return (
-      <>
-        <ConnectionStatus />
-        <VotingScreen
-          currentUser={currentUser}
-          selectedGroup={selectedGroup}
-          userVotes={userVotes}
-          votingComplete={votingComplete}
-          onGroupSelect={setSelectedGroup}
-          onVote={voteForNumber}
-          onSubmitVotes={submitVotes}
-          onShowResults={proceedToReveal}
-          onBackToWaiting={backToWaiting}
-        />
-      </>
+      <VotingScreen
+        currentUser={currentUser}
+        currentTask={currentTask}
+        selectedGroup={selectedGroup}
+        userVotes={userVotes}
+        votingComplete={votingComplete}
+        users={users}
+        votes={votes}
+        submissions={submissions}
+        onGroupSelect={setSelectedGroup}
+        onVote={voteForNumber}
+        onSubmitVotes={submitVotes}
+        onShowResults={proceedToReveal}
+        onBackToWaiting={backToWaiting}
+      />
     )
   }
 
   if (currentScreen === 'reveal') {
     return (
-      <>
-        <ConnectionStatus />
-        <RevealScreen
-          currentUser={currentUser}
-          userVotes={userVotes}
-          votes={votes}
-          onVoteUpdate={handleVoteUpdate}
-          onUpdateVotes={submitVotes}
-          onStartNewRound={proceedToVoting}
-          onBackToWaiting={backToWaiting}
-        />
-      </>
+      <RevealScreen
+        currentUser={currentUser}
+        userVotes={userVotes}
+        votes={votes}
+        onVoteUpdate={handleVoteUpdate}
+        onUpdateVotes={submitVotes}
+        onStartNewRound={proceedToVoting}
+        onBackToWaiting={backToWaiting}
+      />
     )
   }
 

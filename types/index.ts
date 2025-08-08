@@ -19,14 +19,23 @@ export interface User {
   lastSeen: number
 }
 
+export interface UserSubmission {
+  userId: string
+  userName: string
+  timestamp: number
+  hasVotes: boolean
+}
+
 export interface RoomState {
   code: string
   currentScreen: Screen
   users: User[]
   votes: Vote[]
+  submissions: UserSubmission[] // Track who has submitted
   adminId: string
   createdAt: number
   lastUpdated: number
+  currentTask?: string
 }
 
 export interface AppState {
